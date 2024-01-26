@@ -11,27 +11,18 @@ is asynchronous and is started in the same thread as the caller - threads are co
 the [SyncArbiter] chapter.
 
 ```rust
-# extern crate actix;
-# use actix::prelude::*;
-#
 struct MyActor;
 impl Actor for MyActor {
     type Context = Context<Self>;
 }
 
-# fn main() {
-# System::new("test");
 let addr = MyActor.start();
-# }
 ```
 
 An async actor can get its address from the `Context` struct. The context needs to
 implement the `AsyncContext` trait. `AsyncContext::address()` provides the actor's address.
 
 ```rust
-# extern crate actix;
-# use actix::prelude::*;
-#
 struct MyActor;
 
 impl Actor for MyActor {
@@ -41,8 +32,6 @@ impl Actor for MyActor {
        let addr = ctx.address();
     }
 }
-#
-# fn main() {}
 ```
 
 [SyncArbiter]: ./sec-6-sync-arbiter.md
@@ -59,21 +48,21 @@ controlling the actor's lifecycle.
 To send a message to an actor, the `Addr` object needs to be used. `Addr` provides several
 ways to send a message.
 
-  * `Addr::do_send(M)` - this method ignores any errors in message sending. If the mailbox
+- `Addr::do_send(M)` - this method ignores any errors in message sending. If the mailbox
   is full the message is still queued, bypassing the limit. If the actor's mailbox is closed,
   the message is silently dropped. This method does not return the result, so if the
   mailbox is closed and a failure occurs, you won't have an indication of this.
 
-  * `Addr::try_send(M)` - this method tries to send the message immediately. If
+- `Addr::try_send(M)` - this method tries to send the message immediately. If
   the mailbox is full or closed (actor is dead), this method returns a
   [`SendError`].
 
-  * `Addr::send(M)` - This message returns a future object that resolves to a result
+- `Addr::send(M)` - This message returns a future object that resolves to a result
   of a message handling process. If the returned `Future` object is dropped, the
   message is cancelled.
 
-[`Handler<M>`]: https://actix.rs/actix/actix/trait.Handler.html
-[`SendError`]: https://actix.rs/actix/actix/prelude/enum.SendError.html
+[`Handler<M>`]: https://docs.rs/actix/latest/actix/trait.Handler.html
+[`SendError`]: https://docs.rs/actix/latest/actix/prelude/enum.SendError.html
 
 ## Recipient
 
@@ -89,7 +78,6 @@ For example recipient can be used for a subscription system. In the following ex
 be any actor that implements the `Handler<OrderShipped>` trait.
 
 ```rust
-# extern crate actix;
 use actix::prelude::*;
 
 #[derive(Message)]
@@ -147,10 +135,9 @@ impl Handler<Ship> for OrderEvents {
         self.notify(msg.0);
         System::current().stop();
     }
+}
 
-} 
-
-/// Email Subscriber 
+/// Email Subscriber
 struct EmailSubscriber;
 impl Actor for EmailSubscriber {
     type Context = Context<Self>;
@@ -161,7 +148,7 @@ impl Handler<OrderShipped> for EmailSubscriber {
     fn handle(&mut self, msg: OrderShipped, _ctx: &mut Self::Context) -> Self::Result {
         println!("Email sent for order {}", msg.0)
     }
-    
+
 }
 struct SmsSubscriber;
 impl Actor for SmsSubscriber {
@@ -173,17 +160,17 @@ impl Handler<OrderShipped> for SmsSubscriber {
     fn handle(&mut self, msg: OrderShipped, _ctx: &mut Self::Context) -> Self::Result {
         println!("SMS sent for order {}", msg.0)
     }
-    
+
 }
 
-fn main() {
-    let system = System::new("events");
-    let email_subscriber = Subscribe(EmailSubscriber{}.start().recipient());
-    let sms_subscriber = Subscribe(SmsSubscriber{}.start().recipient());
+#[actix::main]
+async fn main() -> Result<(), actix::MailboxError> {
+    let email_subscriber = Subscribe(EmailSubscriber {}.start().recipient());
+    let sms_subscriber = Subscribe(SmsSubscriber {}.start().recipient());
     let order_event = OrderEvents::new().start();
-    order_event.do_send(email_subscriber);
-    order_event.do_send(sms_subscriber);
-    order_event.do_send(Ship(1));
-    system.run();
+    order_event.send(email_subscriber).await?;
+    order_event.send(sms_subscriber).await?;
+    order_event.send(Ship(1)).await?;
+    Ok(())
 }
 ```

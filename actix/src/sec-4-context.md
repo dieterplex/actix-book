@@ -12,9 +12,6 @@ specific to the context implementation. For the `Context`  type the capacity is 
 16 messages by default and can be increased with [`Context::set_mailbox_capacity()`].
 
 ```rust
-# extern crate actix;
-# use actix::prelude::*;
-#
 struct MyActor;
 
 impl Actor for MyActor {
@@ -25,17 +22,14 @@ impl Actor for MyActor {
     }
 }
 
-# fn main() {
-# System::new("test");
 let addr = MyActor.start();
-# }
 ```
 
 Remember that this doesn't apply to `Addr::do_send(M)` which bypasses the Mailbox queue limit, or
 `AsyncContext::notify(M)` and `AsyncContext::notify_later(M, Duration)` which bypasses the mailbox
 entirely.
 
-[`Context::set_mailbox_capacity()`]: https://actix.rs/actix/actix/struct.Context.html#method.set_mailbox_capacity
+[`Context::set_mailbox_capacity()`]: https://docs.rs/actix/latest/actix/struct.Context.html#method.set_mailbox_capacity
 
 ## Getting your actors Address
 
@@ -47,9 +41,6 @@ to a message. If you want an actor to send a message to itself, have a look at
 To get your address from the context you call [`Context::address()`]. An example is:
 
 ```rust
-# extern crate actix;
-# use actix::prelude::*;
-#
 struct MyActor;
 
 struct WhoAmI;
@@ -70,14 +61,10 @@ impl Handler<WhoAmI> for MyActor {
     }
 }
 
-# fn main() {
-#     System::new("scratch");
-#     let addr = MyActor.start();
 let who_addr = addr.do_send(WhoAmI{});
-# }
 ```
 
-[`Context::address()`]: https://actix.rs/actix/actix/struct.Context.html#method.address
+[`Context::address()`]: https://docs.rs/actix/latest/actix/struct.Context.html#method.address
 
 ## Stopping an Actor
 
@@ -88,20 +75,6 @@ of program shutdown. To do this you call [`Context::stop()`].
 This is an adjusted Ping example that stops after 4 pings are received.
 
 ```rust
-# extern crate actix;
-# extern crate actix_rt;
-# use actix::prelude::*;
-# struct MyActor {
-#     count: usize,
-# }
-# impl Actor for MyActor {
-#     type Context = Context<Self>;
-# }
-#
-# #[derive(Message)]
-# #[rtype(result = "usize")]
-# struct Ping(usize);
-#
 impl Handler<Ping> for MyActor {
     type Result = usize;
 
@@ -133,4 +106,4 @@ async fn main() {
 }
 ```
 
-[`Context::stop()`]: https://actix.rs/actix/actix/struct.Context.html#method.stop
+[`Context::stop()`]: https://docs.rs/actix/latest/actix/struct.Context.html#method.stop

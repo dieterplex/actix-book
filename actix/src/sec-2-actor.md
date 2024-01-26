@@ -5,7 +5,7 @@ Actix is a rust library providing a framework for developing concurrent applicat
 Actix is built on the [Actor Model] which
 allows applications to be written as a group of independently executing but cooperating
 "Actors" which communicate via messages. Actors are objects which encapsulate
-state and behavior and run within the *Actor System* provided by the actix library.
+state and behavior and run within the _Actor System_ provided by the actix library.
 
 Actors run within a specific execution context [`Context<A>`].
 The context object is available only during execution. Each actor has a separate
@@ -25,8 +25,8 @@ The `Actor` trait provides several methods that allow controlling the actor's li
 
 [Actor Model]: https://en.wikipedia.org/wiki/Actor_model
 [`Context<A>`]: ./sec-4-context.html
-[`Actor`]: https://actix.rs/actix/actix/trait.Actor.html
-[`Handler<M>`]: https://actix.rs/actix/actix/trait.Handler.html
+[`Actor`]: https://docs.rs/actix/latest/actix/trait.Actor.html
+[`Handler<M>`]: https://docs.rs/actix/latest/actix/trait.Handler.html
 
 ## Actor lifecycle
 
@@ -46,9 +46,9 @@ The Actor can stay in `running` state indefinitely.
 
 The Actor's execution state changes to the `stopping` state in the following situations:
 
-* `Context::stop` is called by the actor itself
-* all addresses to the actor get dropped. i.e. no other actor references it.
-* no event objects are registered in the context.
+- `Context::stop` is called by the actor itself
+- all addresses to the actor get dropped. i.e. no other actor references it.
+- no event objects are registered in the context.
 
 An actor can restore from the `stopping` state to the `running` state by creating a new
 address or adding an event object, and by returning `Running::Continue`.
@@ -75,7 +75,6 @@ Let's define a simple `Ping` message - an actor which will accept this message n
 `Result<bool, std::io::Error>`.
 
 ```rust
-# extern crate actix;
 use actix::prelude::*;
 
 struct Ping;
@@ -83,11 +82,9 @@ struct Ping;
 impl Message for Ping {
     type Result = Result<bool, std::io::Error>;
 }
-#
-# fn main() {}
 ```
 
-[`Message`]: https://actix.rs/actix/actix/trait.Message.html
+[`Message`]: https://docs.rs/actix/latest/actix/trait.Message.html
 
 ## Spawning an actor
 
@@ -99,8 +96,6 @@ creating actors; for details check the docs.
 ## Complete example
 
 ```rust
-# extern crate actix;
-# extern crate actix_rt;
 use actix::prelude::*;
 
 /// Define message
@@ -147,7 +142,7 @@ async fn main() {
     match result {
         Ok(res) => println!("Got result: {}", res.unwrap()),
         Err(err) => println!("Got error: {}", err),
-    } 
+    }
 }
 ```
 
@@ -158,7 +153,7 @@ See how we're returning a `Result<bool, std::io::Error>`? We're able to respond 
 incoming message with this type because it has the `MessageResponse` trait implemented for that type.
 Here's the definition for that trait:
 
-```rust,ignore
+```rust
 pub trait MessageResponse<A: Actor, M: Message> {
     fn handle(self, ctx: &mut A::Context, tx: Option<OneshotSender<M::Result>>);
 }
@@ -170,9 +165,7 @@ Here's an example where we're responding to a `Ping` message with a `GotPing`,
 and responding with `GotPong` for a `Pong` message.
 
 ```rust
-# extern crate actix;
-# extern crate actix_rt;
-use actix::dev::{MessageResponse,OneshotSender};
+use actix::dev::{MessageResponse, OneshotSender};
 use actix::prelude::*;
 
 #[derive(Message)]

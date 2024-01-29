@@ -5,6 +5,10 @@
 - [Welcome](welcome.md)
 - [What is Actix Web](whatis.md)
 
+# Basics
+
+- [Getting Started](getting-started.md)
+
 ---
 
 # Quickstart

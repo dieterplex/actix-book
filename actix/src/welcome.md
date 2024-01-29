@@ -1,9 +1,3 @@
----
-title: Welcome
-description: Guiding you through building web apps with Actix
-slug: /
----
-
 # Welcome to Actix
 
 Actix Web lets you quickly and confidently develop web services in Rust and this guide will get you going in no time.

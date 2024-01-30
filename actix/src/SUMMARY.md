@@ -8,6 +8,7 @@
 # Basics
 
 - [Getting Started](getting-started.md)
+- [Application](application.md)
 
 ---
 

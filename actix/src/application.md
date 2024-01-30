@@ -1,9 +1,3 @@
----
-title: Application
----
-
-import CodeBlock from "@site/src/components/code_block.js";
-
 # Writing an Application
 
 `actix-web` provides various primitives to build web servers and applications with Rust. It provides routing, middleware, pre-processing of requests, post-processing of responses, etc.
@@ -14,7 +8,28 @@ An application's [`scope`][scope] acts as a namespace for all routes, i.e. all r
 
 > For an application with scope `/app`, any request with the paths `/app`, `/app/`, or `/app/test` would match; however, the path `/application` would not match.
 
-<CodeBlock example="application" file="app.rs" section="setup" />
+```rust
+use actix_web::{web, App, HttpServer, Responder};
+
+async fn index() -> impl Responder {
+    "Hello world!"
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new().service(
+            // prefixes all resources and routes attached to it...
+            web::scope("/app")
+                // ...so this handles requests for `GET /app/index.html`
+                .route("/index.html", web::get().to(index)),
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 In this example, an application with the `/app` prefix and an `index.html` resource is created. This resource is available through the `/app/index.html` url.
 
@@ -26,11 +41,38 @@ Application state is shared with all routes and resources within the same scope.
 
 Let's write a simple application and store the application name in the state:
 
-<CodeBlock example="application" file="state.rs" section="setup" />
+```rust
+use actix_web::{get, web, App, HttpServer};
+
+// This struct represents state
+struct AppState {
+    app_name: String,
+}
+
+#[get("/")]
+async fn index(data: web::Data<AppState>) -> String {
+    let app_name = &data.app_name; // <- get app_name
+    format!("Hello {app_name}!") // <- response with app_name
+}
+```
 
 Next, pass in the state when initializing the App and start the application:
 
-<CodeBlock example="application" file="state.rs" section="start_app" />
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .app_data(web::Data::new(AppState {
+                app_name: String::from("Actix Web"),
+            }))
+            .service(index)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 Any number of state types could be registered within the application.
 
@@ -42,11 +84,43 @@ Internally, [`web::Data`][data] uses `Arc`. So in order to avoid creating two `A
 
 In the following example, we will write an application with mutable, shared state. First, we define our state and create our handler:
 
-<CodeBlock example="application" file="mutable_state.rs" section="setup_mutable" />
+```rust
+use actix_web::{web, App, HttpServer};
+use std::sync::Mutex;
+
+struct AppStateWithCounter {
+    counter: Mutex<i32>, // <- Mutex is necessary to mutate safely across threads
+}
+
+async fn index(data: web::Data<AppStateWithCounter>) -> String {
+    let mut counter = data.counter.lock().unwrap(); // <- get counter's MutexGuard
+    *counter += 1; // <- access counter inside MutexGuard
+
+    format!("Request number: {counter}") // <- response with count
+}
+```
 
 and register the data in an `App`:
 
-<CodeBlock example="application" file="mutable_state.rs" section="make_app_mutable" />
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Note: web::Data created _outside_ HttpServer::new closure
+    let counter = web::Data::new(AppStateWithCounter {
+        counter: Mutex::new(0),
+    });
+
+    HttpServer::new(move || {
+        // move counter into the closure
+        App::new()
+            .app_data(counter.clone()) // <- register the created data
+            .route("/", web::get().to(index))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 Key takeaways:
 
@@ -59,7 +133,13 @@ The [`web::scope()`][webscope] method allows setting a resource group prefix. Th
 
 For example:
 
-<CodeBlock example="application" file="scope.rs" section="scope" />
+```rust
+#[actix_web::main]
+async fn main() {
+    let scope = web::scope("/users").service(show_users);
+    App::new().service(scope);
+}
+```
 
 In the above example, the `show_users` route will have an effective route pattern of `/users/show` instead of `/show` because the application's scope argument will be prepended to the pattern. The route will then only match if the URL path is `/users/show`, and when the [`HttpRequest.url_for()`][urlfor] function is called with the route name `show_users`, it will generate a URL with that same path.
 
@@ -69,13 +149,70 @@ You can think of a guard as a simple function that accepts a _request_ object re
 
 One of the provided guards is [`Host`][guardhost]. It can be used as a filter based on request header information.
 
-<CodeBlock example="application" file="vh.rs" section="vh" />
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .service(
+                web::scope("/")
+                    .guard(guard::Host("www.rust-lang.org"))
+                    .route("", web::to(|| async { HttpResponse::Ok().body("www") })),
+            )
+            .service(
+                web::scope("/")
+                    .guard(guard::Host("users.rust-lang.org"))
+                    .route("", web::to(|| async { HttpResponse::Ok().body("user") })),
+            )
+            .route("/", web::to(HttpResponse::Ok))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 ## Configure
 
 For simplicity and reusability both [`App`][appconfig] and [`web::Scope`][webscopeconfig] provide the `configure` method. This function is useful for moving parts of the configuration to a different module or even library. For example, some of the resource's configuration could be moved to a different module.
 
-<CodeBlock example="application" file="config.rs" section="config" />
+```rust
+use actix_web::{web, App, HttpResponse, HttpServer};
+
+// this function could be located in a different module
+fn scoped_config(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::resource("/test")
+            .route(web::get().to(|| async { HttpResponse::Ok().body("test") }))
+            .route(web::head().to(HttpResponse::MethodNotAllowed)),
+    );
+}
+
+// this function could be located in a different module
+fn config(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::resource("/app")
+            .route(web::get().to(|| async { HttpResponse::Ok().body("app") }))
+            .route(web::head().to(HttpResponse::MethodNotAllowed)),
+    );
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .configure(config)
+            .service(web::scope("/api").configure(scoped_config))
+            .route(
+                "/",
+                web::get().to(|| async { HttpResponse::Ok().body("/") }),
+            )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 The result of the above example would be:
 
@@ -89,7 +226,7 @@ Each [`ServiceConfig`][serviceconfig] can have its own `data`, `routes`, and `se
 
 <!-- LINKS -->
 
-[usingappprefix]: /docs/url-dispatch/index.html#using-an-application-prefix-to-compose-applications
+[usingappprefix]: url-dispatch.md#using-an-application-prefix-to-compose-applications
 [stateexample]: https://github.com/actix/examples/blob/master/basics/state/src/main.rs
 [guardtrait]: https://docs.rs/actix-web/4/actix_web/guard/trait.Guard.html
 [guardfuncs]: https://docs.rs/actix-web/4/actix_web/guard/index.html#functions

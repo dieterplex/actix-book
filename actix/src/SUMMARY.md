@@ -9,6 +9,9 @@
 
 - [Getting Started](getting-started.md)
 - [Application](application.md)
+- [Server](server.md)
+- [Extractors](extractors.md)
+- [Handlers](handlers.md)
 
 ---
 

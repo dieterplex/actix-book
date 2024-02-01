@@ -1,9 +1,3 @@
----
-title: Server
----
-
-import RenderCodeBlock from '@theme/CodeBlock'; import CodeBlock from '@site/src/components/code_block.js'; import { actixWebMajorVersion } from "@site/vars";
-
 # The HTTP Server
 
 The [**HttpServer**][httpserverstruct] type is responsible for serving HTTP requests.
@@ -14,13 +8,31 @@ To start the web server it must first be bound to a network socket. Use [`HttpSe
 
 After the `bind` is successful, use [`HttpServer::run()`][httpserver_run] to return a [`Server`][server] instance. The `Server` must be `await`ed or `spawn`ed to start processing requests and will run until it receives a shutdown signal (such as, by default, a `ctrl-c`; [read more here](#graceful-shutdown)).
 
-<CodeBlock example="server" section="main" />
+```rust
+use actix_web::{web, App, HttpResponse, HttpServer};
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().route("/", web::get().to(HttpResponse::Ok)))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
 
 ## Multi-Threading
 
 `HttpServer` automatically starts a number of HTTP _workers_, by default this number is equal to the number of physical CPUs in the system. This number can be overridden with the [`HttpServer::workers()`][workers] method.
 
-<CodeBlock example="server" file="workers.rs" section="workers" />
+```rust
+use actix_web::{web, App, HttpResponse, HttpServer};
+
+#[actix_web::main]
+async fn main() {
+    HttpServer::new(|| App::new().route("/", web::get().to(HttpResponse::Ok))).workers(4);
+    // <- Start 4 workers
+}
+```
 
 Once the workers are created, they each receive a separate _application_ instance to handle requests. Application state is not shared between the threads, and handlers are free to manipulate their copy of the state with no concurrency concerns.
 
@@ -58,14 +70,38 @@ The `rustls` crate feature is for `rustls` integration and `openssl` is for `ope
 
 <!-- DEPENDENCY -->
 
-<RenderCodeBlock className="language-toml">
-{`[dependencies]
-actix-web = { version = "${actixWebMajorVersion}", features = ["openssl"] }
+```toml
+[dependencies]
+actix-web = { version = "4", features = ["openssl"] }
 openssl = { version = "0.10" }
-`}
-</RenderCodeBlock>
+```
 
-<CodeBlock example="server" file="ssl.rs" section="ssl" />
+```rust
+use actix_web::{get, App, HttpRequest, HttpServer, Responder};
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+
+#[get("/")]
+async fn index(_req: HttpRequest) -> impl Responder {
+    "Welcome!"
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // load TLS keys
+    // to create a self-signed temporary cert for testing:
+    // `openssl req -x509 -newkey rsa:4096 -nodes -keyout key.pem -out cert.pem -days 365 -subj '/CN=localhost'`
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder
+        .set_private_key_file("key.pem", SslFiletype::PEM)
+        .unwrap();
+    builder.set_certificate_chain_file("cert.pem").unwrap();
+
+    HttpServer::new(|| App::new().service(index))
+        .bind_openssl("127.0.0.1:8080", builder)?
+        .run()
+        .await
+}
+```
 
 To create the key.pem and cert.pem use the command. **Fill in your own subject**
 
@@ -90,13 +126,43 @@ Actix Web keeps connections open to wait for subsequent requests.
 - `KeepAlive::Os`: uses OS keep-alive.
 - `None` or `KeepAlive::Disabled`: disables keep-alive.
 
-<CodeBlock example="server" file="keep_alive.rs" section="keep-alive" />
+```rust
+use actix_web::{http::KeepAlive, HttpServer};
+use std::time::Duration;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Set keep-alive to 75 seconds
+    let _one = HttpServer::new(app).keep_alive(Duration::from_secs(75));
+
+    // Use OS's keep-alive (usually quite long)
+    let _two = HttpServer::new(app).keep_alive(KeepAlive::Os);
+
+    // Disable keep-alive
+    let _three = HttpServer::new(app).keep_alive(None);
+
+    Ok(())
+}
+```
 
 If the first option above is selected, then keep-alive is enabled for HTTP/1.1 requests if the response does not explicitly disallow it by, for example, setting the [connection type][httpconnectiontype] to `Close` or `Upgrade`. Force closing a connection can be done with [the `force_close()` method on `HttpResponseBuilder`](https://docs.rs/actix-web/4/actix_web/struct.HttpResponseBuilder.html#method.force_close)
 
 > Keep-alive is **off** for HTTP/1.0 and is **on** for HTTP/1.1 and HTTP/2.0.
 
-<CodeBlock example="server" file="keep_alive_tp.rs" section="example" />
+```rust
+use actix_web::{http, HttpRequest, HttpResponse};
+
+async fn index(_req: HttpRequest) -> HttpResponse {
+    let mut resp = HttpResponse::Ok()
+        .force_close() // <- Close connection on HttpResponseBuilder
+        .finish();
+
+    // Alternatively close connection on the HttpResponse struct
+    resp.head_mut().set_connection_type(http::ConnectionType::Close);
+
+    resp
+}
+```
 
 ## Graceful shutdown
 

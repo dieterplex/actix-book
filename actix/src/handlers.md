@@ -1,9 +1,3 @@
----
-title: Handlers
----
-
-import CodeBlock from "@site/src/components/code_block.js";
-
 # Request Handlers
 
 A request handler is an async function that accepts zero or more parameters that can be extracted from a request (i.e., [_impl FromRequest_][implfromrequest]) and returns a type that can be converted into an HttpResponse (i.e., [_impl Responder_][respondertrait]).
@@ -48,13 +42,61 @@ To return a custom type directly from a handler function, the type needs to impl
 
 Let's create a response for a custom type that serializes to an `application/json` response:
 
-<CodeBlock example="responder-trait" file="main.rs" section="responder-trait" />
+```rust
+use actix_web::{
+    body::BoxBody, http::header::ContentType, HttpRequest, HttpResponse, Responder,
+};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct MyObj {
+    name: &'static str,
+}
+
+// Responder
+impl Responder for MyObj {
+    type Body = BoxBody;
+
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        let body = serde_json::to_string(&self).unwrap();
+
+        // Create response and set content type
+        HttpResponse::Ok()
+            .content_type(ContentType::json())
+            .body(body)
+    }
+}
+
+async fn index() -> impl Responder {
+    MyObj { name: "user" }
+}
+```
 
 ## Streaming response body
 
 Response body can be generated asynchronously. In this case, body must implement the stream trait `Stream<Item = Result<Bytes, Error>>`, i.e.:
 
-<CodeBlock example="async-handlers" file="stream.rs" section="stream" />
+```rust
+use actix_web::{get, web, App, Error, HttpResponse, HttpServer};
+use futures::{future::ok, stream::once};
+
+#[get("/stream")]
+async fn stream() -> HttpResponse {
+    let body = once(ok::<_, Error>(web::Bytes::from_static(b"test")));
+
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .streaming(body)
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(stream))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
 
 ## Different return types (Either)
 
@@ -62,7 +104,21 @@ Sometimes, you need to return different types of responses. For example, you can
 
 For this case, the [Either][either] type can be used. `Either` allows combining two different responder types into a single type.
 
-<CodeBlock example="either" file="main.rs" section="either" />
+```rust
+use actix_web::{Either, Error, HttpResponse};
+
+type RegisterResult = Either<HttpResponse, Result<&'static str, Error>>;
+
+async fn index() -> RegisterResult {
+    if is_a_variant() {
+        // choose Left variant
+        Either::Left(HttpResponse::BadRequest().body("Bad data"))
+    } else {
+        // choose Right variant
+        Either::Right(Ok("Hello!"))
+    }
+}
+```
 
 [implfromrequest]: https://docs.rs/actix-web/4/actix_web/trait.FromRequest.html
 [respondertrait]: https://docs.rs/actix-web/4/actix_web/trait.Responder.html

@@ -1,7 +1,3 @@
----
-title: HTTP Server Initialization
----
-
 # Architecture overview
 
 Below is a diagram of HttpServer initialization, which happens on the following code
@@ -19,4 +15,4 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-![](/img/diagrams/http_server.svg)
+![](img/diagrams/http_server.svg)

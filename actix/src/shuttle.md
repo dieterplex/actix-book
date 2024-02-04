@@ -1,9 +1,3 @@
----
-title: Hosting on Shuttle
----
-
-import CodeBlock from '@site/src/components/code_block.js';
-
 # Hosting on Shuttle
 
 <img width="300" src="https://raw.githubusercontent.com/shuttle-hq/shuttle/master/assets/logo-rectangle-transparent.png"/>
@@ -14,11 +8,30 @@ Shuttle has out-of-the-box support for Actix Web. Follow these steps to host you
 
 1. Add Shuttle dependencies to `Cargo.toml`:
 
-<CodeBlock example="shuttle" file="manifest" section="shuttle-deps" language="toml" />
+```toml
+[dependencies]
+actix-web = "4"
+shuttle-actix-web = "0.36"
+shuttle-runtime = "0.36"
+tokio = "1"
+```
 
 2. Add the `#[shuttle_runtime::main]` annotation and update the `main` function as follows:
 
-<CodeBlock example="shuttle" section="shuttle-hello-world" />
+```rust
+use actix_web::{get, web::ServiceConfig};
+use shuttle_actix_web::ShuttleActixWeb;
+
+#[shuttle_runtime::main]
+async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    let config = move |cfg: &mut ServiceConfig| {
+        // set up your service here, e.g.:
+        cfg.service(hello_world);
+    };
+
+    Ok(config.into())
+}
+```
 
 3. Install `cargo-shuttle`:
 

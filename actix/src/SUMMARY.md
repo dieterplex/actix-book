@@ -23,9 +23,23 @@
 - [Middleware](middleware.md)
 - [Static Files](static-files.md)
 
----
+# Protocols
 
-# Quickstart
+- [Websockets](websockets.md)
+- [HTTP/2](http2.md)
+
+# Patterns
+
+- [Auto-Reloading](autoreload.md)
+- [Databases](databases.md)
+- [Hosting on Shuttle](shuttle.md)
+
+# Diagrams
+
+- [HTTP Server Initialization](http_server_init.md)
+- [Connection Lifecycle](conn_lifecycle.md)
+
+---
 
 - [Quickstart](./sec-0-quick-start.md)
     - [Getting Started](./sec-1-getting-started.md)

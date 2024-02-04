@@ -1,9 +1,3 @@
----
-title: Errors
----
-
-import CodeBlock from "@site/src/components/code_block.js";
-
 # Errors
 
 Actix Web uses its own [`actix_web::error::Error`][actixerror] type and [`actix_web::error::ResponseError`][responseerror] trait for error handling from web handlers.
@@ -42,19 +36,89 @@ See [the Actix Web API documentation][responseerrorimpls] for a full list of for
 
 Here's an example implementation for `ResponseError`, using the [derive_more] crate for declarative error enums.
 
-<CodeBlock example="errors" file="main.rs" section="response-error" />
+```rust
+use actix_web::{error, Result};
+use derive_more::{Display, Error};
+
+#[derive(Debug, Display, Error)]
+#[display(fmt = "my error: {}", name)]
+struct MyError {
+    name: &'static str,
+}
+
+// Use default implementation for `error_response()` method
+impl error::ResponseError for MyError {}
+
+async fn index() -> Result<&'static str, MyError> {
+    Err(MyError { name: "test" })
+}
+```
 
 `ResponseError` has a default implementation for `error_response()` that will render a _500_ (internal server error), and that's what will happen when the `index` handler executes above.
 
 Override `error_response()` to produce more useful results:
 
-<CodeBlock example="errors" file="override_error.rs" section="override" />
+```rust
+use actix_web::{
+    error, get,
+    http::{header::ContentType, StatusCode},
+    App, HttpResponse,
+};
+use derive_more::{Display, Error};
+
+#[derive(Debug, Display, Error)]
+enum MyError {
+    #[display(fmt = "internal error")]
+    InternalError,
+
+    #[display(fmt = "bad request")]
+    BadClientData,
+
+    #[display(fmt = "timeout")]
+    Timeout,
+}
+
+impl error::ResponseError for MyError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .insert_header(ContentType::html())
+            .body(self.to_string())
+    }
+
+    fn status_code(&self) -> StatusCode {
+        match *self {
+            MyError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+            MyError::BadClientData => StatusCode::BAD_REQUEST,
+            MyError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+        }
+    }
+}
+
+#[get("/")]
+async fn index() -> Result<&'static str, MyError> {
+    Err(MyError::BadClientData)
+}
+```
 
 ## Error helpers
 
 Actix Web provides a set of error helper functions that are useful for generating specific HTTP error codes from other errors. Here we convert `MyError`, which doesn't implement the `ResponseError` trait, to a _400_ (bad request) using `map_err`:
 
-<CodeBlock example="errors" file="helpers.rs" section="helpers" />
+```rust
+use actix_web::{error, get, App, HttpServer};
+
+#[derive(Debug)]
+struct MyError {
+    name: &'static str,
+}
+
+#[get("/")]
+async fn index() -> actix_web::Result<String> {
+    let result = Err(MyError { name: "test error" });
+
+    result.map_err(|err| error::ErrorBadRequest(err.name))
+}
+```
 
 See the [API documentation for actix-web's `error` module][actixerror] for a full list of available error helpers.
 
@@ -74,7 +138,33 @@ It might be useful to think about dividing the errors an application produces in
 
 An example of the former is that I might use failure to specify a `UserError` enum which encapsulates a `ValidationError` to return whenever a user sends bad input:
 
-<CodeBlock example="errors" file="recommend_one.rs" section="recommend-one" />
+```rust
+use actix_web::{
+    error, get,
+    http::{header::ContentType, StatusCode},
+    App, HttpResponse, HttpServer,
+};
+use derive_more::{Display, Error};
+
+#[derive(Debug, Display, Error)]
+enum UserError {
+    #[display(fmt = "Validation error on field: {}", field)]
+    ValidationError { field: String },
+}
+
+impl error::ResponseError for UserError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .insert_header(ContentType::html())
+            .body(self.to_string())
+    }
+    fn status_code(&self) -> StatusCode {
+        match *self {
+            UserError::ValidationError { .. } => StatusCode::BAD_REQUEST,
+        }
+    }
+}
+```
 
 This will behave exactly as intended because the error message defined with `display` is written with the explicit intent to be read by a user.
 
@@ -82,7 +172,40 @@ However, sending back an error's message isn't desirable for all errors -- there
 
 Here's an example that maps an internal error to a user-facing `InternalError` with a custom message:
 
-<CodeBlock example="errors" file="recommend_two.rs" section="recommend-two" />
+```rust
+use actix_web::{
+    error, get,
+    http::{header::ContentType, StatusCode},
+    App, HttpResponse, HttpServer,
+};
+use derive_more::{Display, Error};
+
+#[derive(Debug, Display, Error)]
+enum UserError {
+    #[display(fmt = "An internal error occurred. Please try again later.")]
+    InternalError,
+}
+
+impl error::ResponseError for UserError {
+    fn error_response(&self) -> HttpResponse {
+        HttpResponse::build(self.status_code())
+            .insert_header(ContentType::html())
+            .body(self.to_string())
+    }
+
+    fn status_code(&self) -> StatusCode {
+        match *self {
+            UserError::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[get("/")]
+async fn index() -> Result<&'static str, UserError> {
+    do_thing_that_fails().map_err(|_e| UserError::InternalError)?;
+    Ok("success!")
+}
+```
 
 By dividing errors into those which are user facing and those which are not, we can ensure that we don't accidentally expose users to errors thrown by application internals which they weren't meant to see.
 
@@ -96,7 +219,46 @@ env_logger = "0.8"
 log = "0.4"
 ```
 
-<CodeBlock example="errors" file="logging.rs" section="logging" />
+```rust
+use actix_web::{error, get, middleware::Logger, App, HttpServer, Result};
+use derive_more::{Display, Error};
+use log::info;
+
+#[derive(Debug, Display, Error)]
+#[display(fmt = "my error: {}", name)]
+pub struct MyError {
+    name: &'static str,
+}
+
+// Use default implementation for `error_response()` method
+impl error::ResponseError for MyError {}
+
+#[get("/")]
+async fn index() -> Result<&'static str, MyError> {
+    let err = MyError { name: "test error" };
+    info!("{}", err);
+    Err(err)
+}
+
+#[rustfmt::skip]
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    std::env::set_var("RUST_LOG", "info");
+    std::env::set_var("RUST_BACKTRACE", "1");
+    env_logger::init();
+
+    HttpServer::new(|| {
+        let logger = Logger::default();
+
+        App::new()
+            .wrap(logger)
+            .service(index)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 [actixerror]: https://docs.rs/actix-web/4/actix_web/error/struct.Error.html
 [errorhelpers]: https://docs.rs/actix-web/4/actix_web/trait.ResponseError.html

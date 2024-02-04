@@ -1,9 +1,3 @@
----
-title: URL Dispatch
----
-
-import CodeBlock from "@site/src/components/code_block.js";
-
 # URL Dispatch
 
 URL dispatch provides a simple way for mapping URLs to handler code using a simple pattern matching language. If one of the patterns matches the path information associated with a request, a particular handler object is invoked.
@@ -16,11 +10,47 @@ Resource configuration is the act of adding a new resources to an application. A
 
 The [_App::route()_][approute] method provides simple way of registering routes. This method adds a single route to application routing table. This method accepts a _path pattern_, _HTTP method_ and a handler function. `route()` method could be called multiple times for the same path, in that case, multiple routes register for the same resource path.
 
-<CodeBlock example="url-dispatch" section="main" />
+```rust
+use actix_web::{web, App, HttpResponse, HttpServer};
+
+async fn index() -> HttpResponse {
+    HttpResponse::Ok().body("Hello")
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .route("/", web::get().to(index))
+            .route("/user", web::post().to(index))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 While _App::route()_ provides simple way of registering routes, to access complete resource configuration, a different method has to be used. The [_App::service()_][appservice] method adds a single [resource][webresource] to application routing table. This method accepts a _path pattern_, guards, and one or more routes.
 
-<CodeBlock example="url-dispatch" file="resource.rs" section="resource" />
+```rust
+use actix_web::{guard, web, App, HttpResponse};
+
+async fn index() -> HttpResponse {
+    HttpResponse::Ok().body("Hello")
+}
+
+pub fn main() {
+    App::new()
+        .service(web::resource("/prefix").to(index))
+        .service(
+            web::resource("/user/{name}")
+                .name("user_detail")
+                .guard(guard::Header("content-type", "application/json"))
+                .route(web::get().to(HttpResponse::Ok))
+                .route(web::put().to(HttpResponse::Ok)),
+        );
+}
+```
 
 If a resource does not contain any route or does not have any matching routes, it returns _NOT FOUND_ HTTP response.
 
@@ -32,7 +62,16 @@ The application routes incoming requests based on route criteria which are defin
 
 > A _Route_ can contain any number of _guards_ but only one handler.
 
-<CodeBlock example="url-dispatch" file="cfg.rs" section="cfg" />
+```rust
+App::new().service(
+    web::resource("/path").route(
+        web::route()
+            .guard(guard::Get())
+            .guard(guard::Header("content-type", "text/plain"))
+            .to(HttpResponse::Ok),
+    ),
+)
+```
 
 In this example, `HttpResponse::Ok()` is returned for _GET_ requests if the request contains `Content-Type` header, the value of this header is _text/plain_, and path equals to `/path`.
 
@@ -174,7 +213,31 @@ Suppose that you want to organize paths to endpoints used to view "Users". Such 
 
 A scoped layout of these paths would appear as follows
 
-<CodeBlock example="url-dispatch" file="scope.rs" section="scope" />
+```rust
+#[get("/show")]
+async fn show_users() -> HttpResponse {
+    HttpResponse::Ok().body("Show users")
+}
+
+#[get("/show/{id}")]
+async fn user_detail(path: web::Path<(u32,)>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("User detail: {}", path.into_inner().0))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new().service(
+            web::scope("/users")
+                .service(show_users)
+                .service(user_detail),
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 A _scoped_ path can contain variable path segments as resources. Consistent with un-scoped paths.
 
@@ -184,7 +247,25 @@ You can get variable path segments from `HttpRequest::match_info()`. [`Path` ext
 
 All values representing matched path segments are available in [`HttpRequest::match_info`][matchinfo]. Specific values can be retrieved with [`Path::get()`][pathget].
 
-<CodeBlock example="url-dispatch" file="minfo.rs" section="minfo" />
+```rust
+use actix_web::{get, App, HttpRequest, HttpServer, Result};
+
+#[get("/a/{v1}/{v2}/")]
+async fn index(req: HttpRequest) -> Result<String> {
+    let v1: u8 = req.match_info().get("v1").unwrap().parse().unwrap();
+    let v2: u8 = req.match_info().query("v2").parse().unwrap();
+    let (v3, v4): (u8, u8) = req.match_info().load().unwrap();
+    Ok(format!("Values {} {} {} {}", v1, v2, v3, v4))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(index))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
 
 For this example for path '/a/1/2/', values v1 and v2 will resolve to "1" and "2".
 
@@ -192,11 +273,49 @@ For this example for path '/a/1/2/', values v1 and v2 will resolve to "1" and "2
 
 Actix provides functionality for type safe path information extraction. [_Path_][pathstruct] extracts information, destination type could be defined in several different forms. Simplest approach is to use `tuple` type. Each element in tuple must correspond to one element from path pattern. i.e. you can match path pattern `/{id}/{username}/` against `Path<(u32, String)>` type, but `Path<(String, String, String)>` type will always fail.
 
-<CodeBlock example="url-dispatch" file="path.rs" section="path" />
+```rust
+use actix_web::{get, web, App, HttpServer, Result};
+
+#[get("/{username}/{id}/index.html")] // <- define path parameters
+async fn index(info: web::Path<(String, u32)>) -> Result<String> {
+    let info = info.into_inner();
+    Ok(format!("Welcome {}! id: {}", info.0, info.1))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(index))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
 
 It also possible to extract path pattern information to a struct. In this case, this struct must implement _serde's_ `Deserialize` trait.
 
-<CodeBlock example="url-dispatch" file="path2.rs" section="path" />
+```rust
+use actix_web::{get, web, App, HttpServer, Result};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Info {
+    username: String,
+}
+
+// extract path info using serde
+#[get("/{username}/index.html")] // <- define path parameters
+async fn index(info: web::Path<Info>) -> Result<String> {
+    Ok(format!("Welcome {}!", info.username))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| App::new().service(index))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
+}
+```
 
 [_Query_][query] provides similar functionality for request query parameters.
 
@@ -204,7 +323,37 @@ It also possible to extract path pattern information to a struct. In this case, 
 
 Use the [_HttpRequest.url_for()_][urlfor] method to generate URLs based on resource patterns. For example, if you've configured a resource with the name "foo" and the pattern "\{a}/\{b}/\{c}", you might do this:
 
-<CodeBlock example="url-dispatch" file="urls.rs" section="url" />
+```rust
+use actix_web::{get, guard, http::header, HttpRequest, HttpResponse, Result};
+
+#[get("/test/")]
+async fn index(req: HttpRequest) -> Result<HttpResponse> {
+    let url = req.url_for("foo", ["1", "2", "3"])?; // <- generate url for "foo" resource
+
+    Ok(HttpResponse::Found()
+        .insert_header((header::LOCATION, url.as_str()))
+        .finish())
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    use actix_web::{web, App, HttpServer};
+
+    HttpServer::new(|| {
+        App::new()
+            .service(
+                web::resource("/test/{a}/{b}/{c}")
+                    .name("foo") // <- set resource name, then it could be used in `url_for`
+                    .guard(guard::Get())
+                    .to(HttpResponse::Ok),
+            )
+            .service(index)
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 This would return something like the string `http://example.com/test/1/2/3` (at least if the current protocol and hostname implied http://example.com). `url_for()` method returns [_Url object_][urlobj] so you can modify this url (add query parameters, anchor, etc). `url_for()` could be called only for _named_ resources otherwise error get returned.
 
@@ -212,7 +361,28 @@ This would return something like the string `http://example.com/test/1/2/3` (at 
 
 Resources that are valid URLs, can be registered as external resources. They are useful for URL generation purposes only and are never considered for matching at request time.
 
-<CodeBlock example="url-dispatch" file="url_ext.rs" section="ext" />
+```rustuse actix_web::{get, App, HttpRequest, HttpServer, Responder};
+
+#[get("/")]
+async fn index(req: HttpRequest) -> impl Responder {
+    let url = req.url_for("youtube", ["oHg5SJYRHA0"]).unwrap();
+    assert_eq!(url.as_str(), "https://youtube.com/watch/oHg5SJYRHA0");
+
+    url.to_string()
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .service(index)
+            .external_resource("youtube", "https://youtube.com/watch/{video_id}")
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 ## Path normalization and redirecting to slash-appended routes
 
@@ -223,7 +393,27 @@ By normalizing it means:
 
 The handler returns as soon as it finds a path that resolves correctly. The order of normalization conditions, if all are enabled, is 1) merge, 2) both merge and append and 3) append. If the path resolves with at least one of those conditions, it will redirect to the new path.
 
-<CodeBlock example="url-dispatch" file="norm.rs" section="norm" />
+```rust
+use actix_web::{middleware, HttpResponse};
+
+async fn index() -> HttpResponse {
+    HttpResponse::Ok().body("Hello")
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    use actix_web::{web, App, HttpServer};
+
+    HttpServer::new(|| {
+        App::new()
+            .wrap(middleware::NormalizePath::default())
+            .route("/resource/", web::to(index))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 In this example `//resource///` will be redirected to `/resource/`.
 
@@ -231,7 +421,22 @@ In this example, the path normalization handler is registered for all methods, b
 
 It is possible to register path normalization only for _GET_ requests only:
 
-<CodeBlock example="url-dispatch" file="norm2.rs" section="norm" />
+```rust
+use actix_web::{get, http::Method, middleware, web, App, HttpServer};
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .wrap(middleware::NormalizePath::default())
+            .service(index)
+            .default_service(web::route().method(Method::GET))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 ### Using an Application Prefix to Compose Applications
 
@@ -239,7 +444,31 @@ The `web::scope()` method allows to set a specific application scope. This scope
 
 For example:
 
-<CodeBlock example="url-dispatch" file="scope.rs" section="scope" />
+```rust
+#[get("/show")]
+async fn show_users() -> HttpResponse {
+    HttpResponse::Ok().body("Show users")
+}
+
+#[get("/show/{id}")]
+async fn user_detail(path: web::Path<(u32,)>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("User detail: {}", path.into_inner().0))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new().service(
+            web::scope("/users")
+                .service(show_users)
+                .service(user_detail),
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 In the above example, the _show_users_ route will have an effective route pattern of _/users/show_ instead of _/show_ because the application's scope will be prepended to the pattern. The route will then only match if the URL path is _/users/show_, and when the `HttpRequest.url_for()` function is called with the route name show_users, it will generate a URL with that same path.
 
@@ -249,7 +478,37 @@ You can think of a guard as a simple function that accepts a _request_ object re
 
 Here is a simple guard that check that a request contains a specific _header_:
 
-<CodeBlock example="url-dispatch" file="guard.rs" section="guard" />
+```rust
+use actix_web::{
+    guard::{Guard, GuardContext},
+    http, HttpResponse,
+};
+
+struct ContentTypeHeader;
+
+impl Guard for ContentTypeHeader {
+    fn check(&self, req: &GuardContext) -> bool {
+        req.head()
+            .headers()
+            .contains_key(http::header::CONTENT_TYPE)
+    }
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    use actix_web::{web, App, HttpServer};
+
+    HttpServer::new(|| {
+        App::new().route(
+            "/",
+            web::route().guard(ContentTypeHeader).to(HttpResponse::Ok),
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 In this example, _index_ handler will be called only if request contains _CONTENT-TYPE_ header.
 
@@ -259,7 +518,24 @@ Guards can not access or modify the request object, but it is possible to store 
 
 You can invert the meaning of any predicate value by wrapping it in a `Not` predicate. For example, if you want to return "METHOD NOT ALLOWED" response for all methods except "GET":
 
-<CodeBlock example="url-dispatch" file="guard2.rs" section="guard2" />
+```rust
+use actix_web::{guard, web, App, HttpResponse, HttpServer};
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new().route(
+            "/",
+            web::route()
+                .guard(guard::Not(guard::Get()))
+                .to(HttpResponse::MethodNotAllowed),
+        )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 The `Any` guard accepts a list of guards and matches if any of the supplied guards match. i.e:
 
@@ -277,9 +553,25 @@ guard::All(guard::Get()).and(guard::Header("content-type", "plain/text"))
 
 If the path pattern can not be found in the routing table or a resource can not find matching route, the default resource is used. The default response is _NOT FOUND_. It is possible to override the _NOT FOUND_ response with `App::default_service()`. This method accepts a _configuration function_ same as normal resource configuration with `App::service()` method.
 
-<CodeBlock example="url-dispatch" file="dhandler.rs" section="default" />
+```rust
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .service(web::resource("/").route(web::get().to(index)))
+            .default_service(
+                web::route()
+                    .guard(guard::Not(guard::Get()))
+                    .to(HttpResponse::MethodNotAllowed),
+            )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
-[handlersection]: /docs/handlers/
+[handlersection]: handlers.md
 [approute]: https://docs.rs/actix-web/4/actix_web/struct.App.html#method.route
 [appservice]: https://docs.rs/actix-web/4/actix_web/struct.App.html?search=#method.service
 [webresource]: https://docs.rs/actix-web/4/actix_web/struct.Resource.html
@@ -299,4 +591,4 @@ If the path pattern can not be found in the routing table or a resource can not 
 [requestextensions]: https://docs.rs/actix-web/4/actix_web/struct.HttpRequest.html#method.extensions
 [implfromrequest]: https://docs.rs/actix-web/4/actix_web/trait.FromRequest.html
 [implresponder]: https://docs.rs/actix-web/4/actix_web/trait.Responder.html
-[pathextractor]: /docs/extractors
+[pathextractor]: extractors.md

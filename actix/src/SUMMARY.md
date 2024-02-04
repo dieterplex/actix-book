@@ -13,6 +13,16 @@
 - [Extractors](extractors.md)
 - [Handlers](handlers.md)
 
+# Advanced
+
+- [Errors](errors.md)
+- [URL Dispatch](url-dispatch.md)
+- [Requests](request.md)
+- [Responses](response.md)
+- [Testing](testing.md)
+- [Middleware](middleware.md)
+- [Static Files](static-files.md)
+
 ---
 
 # Quickstart

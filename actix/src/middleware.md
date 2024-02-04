@@ -1,9 +1,3 @@
----
-title: Middleware
----
-
-import CodeBlock from "@site/src/components/code_block.js";
-
 # Middleware
 
 Actix Web's middleware system allows us to add additional behavior to request/response processing. Middleware can hook into an incoming request process, enabling us to modify requests as well as halt request processing to return a response early.
@@ -21,11 +15,94 @@ Middleware is registered for each `App`, `scope`, or `Resource` and executed in 
 
 The following demonstrates creating a simple middleware:
 
-<CodeBlock example="middleware" file="main.rs" section="simple" />
+```rust
+use std::future::{ready, Ready};
+
+use actix_web::{
+    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    Error,
+};
+use futures_util::future::LocalBoxFuture;
+
+// There are two steps in middleware processing.
+// 1. Middleware initialization, middleware factory gets called with
+//    next service in chain as parameter.
+// 2. Middleware's call method gets called with normal request.
+pub struct SayHi;
+
+// Middleware factory is `Transform` trait
+// `S` - type of the next service
+// `B` - type of response's body
+impl<S, B> Transform<S, ServiceRequest> for SayHi
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = SayHiMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(SayHiMiddleware { service }))
+    }
+}
+
+pub struct SayHiMiddleware<S> {
+    service: S,
+}
+
+impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    forward_ready!(service);
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        println!("Hi from start. You requested: {}", req.path());
+
+        let fut = self.service.call(req);
+
+        Box::pin(async move {
+            let res = fut.await?;
+
+            println!("Hi from response");
+            Ok(res)
+        })
+    }
+}
+```
 
 Alternatively, for simple use cases, you can use [_wrap_fn_][wrap_fn] to create small, ad-hoc middleware:
 
-<CodeBlock example="middleware" file="wrap_fn.rs" section="wrap-fn" />
+```rust
+use actix_web::{dev::Service as _, web, App};
+use futures_util::future::FutureExt;
+
+#[actix_web::main]
+async fn main() {
+    let app = App::new()
+        .wrap_fn(|req, srv| {
+            println!("Hi from start. You requested: {}", req.path());
+            srv.call(req).map(|res| {
+                println!("Hi from response");
+                res
+            })
+        })
+        .route(
+            "/index.html",
+            web::get().to(|| async { "Hello, middleware!" }),
+        );
+}
+```
 
 > Actix Web provides several useful middleware, such as _logging_, _user sessions_, _compress_, etc.
 
@@ -45,7 +122,26 @@ Create `Logger` middleware with the specified `format`. Default `Logger` can be 
   %a %t "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T
 ```
 
-<CodeBlock example="middleware" file="logger.rs" section="logger" />
+```rust
+use actix_web::middleware::Logger;
+use env_logger::Env;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    use actix_web::{App, HttpServer};
+
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
+
+    HttpServer::new(|| {
+        App::new()
+            .wrap(Logger::default())
+            .wrap(Logger::new("%a %{User-Agent}i"))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 The following is an example of the default logging format:
 
@@ -65,15 +161,33 @@ INFO:actix_web::middleware::logger: 127.0.0.1:59947 [02/Dec/2017:00:22:40 -0800]
 - `%b` Size of response in bytes, including HTTP headers
 - `%T` Time taken to serve the request, in seconds with floating fraction in .06f format
 - `%D` Time taken to serve the request, in milliseconds
-- `%{FOO}i` request.headers['FOO']
-- `%{FOO}o` response.headers['FOO']
-- `%{FOO}e` os.environ['FOO']
+- `%{FOO}i` request.headers\['FOO'\]
+- `%{FOO}o` response.headers\['FOO'\]
+- `%{FOO}e` os.environ\['FOO'\]
 
 ## Default headers
 
 To set default response headers, the `DefaultHeaders` middleware can be used. The _DefaultHeaders_ middleware does not set the header if response headers already contain a specified header.
 
-<CodeBlock example="middleware" file="default_headers.rs" section="default-headers" />
+```rust
+use actix_web::{http::Method, middleware, web, App, HttpResponse, HttpServer};
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .wrap(middleware::DefaultHeaders::new().add(("X-Version", "0.2")))
+            .service(
+                web::resource("/test")
+                    .route(web::get().to(HttpResponse::Ok))
+                    .route(web::method(Method::HEAD).to(HttpResponse::MethodNotAllowed)),
+            )
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 ## User sessions
 
@@ -93,7 +207,41 @@ In general, you create a `SessionStorage` middleware and initialize it with spec
 
 > `actix_session::storage::CookieSessionStore` is available on the crate feature "cookie-session".
 
-<CodeBlock example="middleware" file="user_sessions.rs" section="user-session" />
+```rust
+use actix_session::{Session, SessionMiddleware, storage::CookieSessionStore};
+use actix_web::{web, App, Error, HttpResponse, HttpServer, cookie::Key};
+
+async fn index(session: Session) -> Result<HttpResponse, Error> {
+    // access session data
+    if let Some(count) = session.get::<i32>("counter")? {
+        session.insert("counter", count + 1)?;
+    } else {
+        session.insert("counter", 1)?;
+    }
+
+    Ok(HttpResponse::Ok().body(format!(
+        "Count is {:?}!",
+        session.get::<i32>("counter")?.unwrap()
+    )))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .wrap(
+                // create cookie based session middleware
+                SessionMiddleware::builder(CookieSessionStore::default(), Key::from(&[0; 64]))
+                    .cookie_secure(false)
+                    .build()
+            )
+            .service(web::resource("/").to(index))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 ## Error handlers
 
@@ -101,7 +249,38 @@ In general, you create a `SessionStorage` middleware and initialize it with spec
 
 You can use the `ErrorHandlers::handler()` method to register a custom error handler for a specific status code. You can modify an existing response or create a completly new one. The error handler can return a response immediately or return a future that resolves into a response.
 
-<CodeBlock example="middleware" file="errorhandler.rs" section="error-handler" />
+```rust
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
+use actix_web::{
+    dev,
+    http::{header, StatusCode},
+    web, App, HttpResponse, HttpServer, Result,
+};
+
+fn add_error_header<B>(mut res: dev::ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>> {
+    res.response_mut().headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("Error"),
+    );
+
+    Ok(ErrorHandlerResponse::Response(res.map_into_left_body()))
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .wrap(
+                ErrorHandlers::new()
+                    .handler(StatusCode::INTERNAL_SERVER_ERROR, add_error_header),
+            )
+            .service(web::resource("/").route(web::get().to(HttpResponse::InternalServerError)))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
+}
+```
 
 [sessionobj]: https://docs.rs/actix-session/0.7/actix_session/struct.Session.html
 [requestsession]: https://docs.rs/actix-session/0.7/actix_session/struct.Session.html
